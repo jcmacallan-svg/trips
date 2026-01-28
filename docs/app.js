@@ -536,6 +536,69 @@ function wireGitHubLinks(){
   els.editDataLink.href = `${repoUrl}/edit/main/docs/data/ww1-belgium.yaml`;
 }
 
+
+
+let __STATE = { search:"", region:"", type:"", theme:"", photosOnly:false };
+
+async function loadDataset(ds){
+  currentDataset = ds;
+  favs = loadFavs(currentDataset);
+
+  setStatus("Dataset laden…");
+  let doc;
+  try{
+    doc = await fetchYaml(DATASETS[currentDataset]);
+    __DOC = doc;
+  }catch(e){
+    console.error(e);
+    setStatus("Kon data niet laden. Controleer of het YAML-bestand bestaat in docs/data/.");
+    return;
+  }
+
+  // Reset filters UI
+  els.search.value = "";
+  els.region.value = "";
+  els.type.value = "";
+  els.theme.value = "";
+  els.photosOnly.checked = false;
+  __STATE = { search:"", region:"", type:"", theme:"", photosOnly:false };
+
+  // Populate selects
+  const regions = doc.regions || [];
+  const pois = doc.pois || [];
+
+  buildSelect(els.region, regions.map(r=>r.id), "Alle regio’s");
+  for(const opt of Array.from(els.region.options)){
+    const r = regions.find(x=>x.id===opt.value);
+    if(r) opt.textContent = r.name;
+  }
+  buildSelect(els.type, uniq(pois.map(p=>p.type)).sort(), "Alle types");
+  buildSelect(els.theme, uniq(pois.flatMap(p=>p.themes || [])).sort(), "Alle thema’s");
+
+  // Render
+  render(doc, __STATE);
+
+  // Reset planner output
+  const out = document.querySelector("#plannerOutput");
+  if(out){ out.innerHTML = ""; out.dataset.hasPlan = ""; }
+  updatePlannerUI();
+}
+
+function wireTabs(){
+  const tabs = Array.from(document.querySelectorAll("#tabs .tab"));
+  if(!tabs.length) return;
+
+  for(const t of tabs){
+    t.addEventListener("click", async ()=>{
+      const ds = t.dataset.dataset;
+      if(!ds || ds === currentDataset) return;
+      for(const x of tabs){ x.classList.toggle("active", x.dataset.dataset === ds); }
+      await loadDataset(ds);
+    });
+  }
+}
+
+
 /* Planner UI needs access to doc in memory */
 let __DOC = null;
 
@@ -548,7 +611,6 @@ function coordsFromPoi(poi){
 function updatePlannerUI(){
   if(!__DOC) return;
   const panel = ensurePlannerPanel();
-  wireTabs(()=>reloadFromDataset());
   const meta = panel.querySelector("#plannerMeta");
   const out = panel.querySelector("#plannerOutput");
 
@@ -759,16 +821,6 @@ function render(doc, window.__STATE){
 }
 
 
-function wireTabs(onSwitch){
-  const tabs = Array.from(document.querySelectorAll("#tabs .tab"));
-  if(!tabs.length) return;
-  for(const t of tabs){
-    t.addEventListener("click", ()=>{
-      const ds = t.dataset.dataset;
-      if(!ds || ds === currentDataset) return;
-      currentDataset = ds;
-      favs = loadFavs(currentDataset);
-      for(const x of tabs){ x.classList.toggle("active", x.dataset.dataset === ds); }
       if(typeof onSwitch === "function") onSwitch(ds);
     });
   }
@@ -782,105 +834,41 @@ async function fetchYaml(url){
 }
 
 async function main(){
-
-async function reloadFromDataset(){
-  setStatus("Dataset laden…");
-  let doc2;
-  try{
-    doc2 = await fetchYaml(DATASETS[currentDataset]);
-    __DOC = doc2;
-  }catch(e){
-    console.error(e);
-    setStatus("Kon data niet laden voor deze dataset.");
-    return;
-  }
-
-  // reset filters UI + values
-  els.search.value = "";
-  els.region.value = "";
-  els.type.value = "";
-  els.theme.value = "";
-  els.photosOnly.checked = false;
-  window.__STATE.search = "";
-  window.__STATE.region = "";
-  window.__STATE.type = "";
-  window.__STATE.theme = "";
-  window.__STATE.photosOnly = false;
-
-  // rebuild selects
-  const regions = doc2.regions || [];
-  const pois = doc2.pois || [];
-
-  buildSelect(els.region, regions.map(r=>({id:r.id, name:r.name})).map(o=>o.id), "Alle regio’s");
-  for(const opt of Array.from(els.region.options)){
-    const r = regions.find(x=>x.id===opt.value);
-    if(r) opt.textContent = r.name;
-  }
-  buildSelect(els.type, uniq(pois.map(p=>p.type)).sort(), "Alle types");
-  buildSelect(els.theme, uniq(pois.flatMap(p=>p.themes || [])).sort(), "Alle thema’s");
-
-  // rerender
-  render(doc2, window.__STATE);
-}
-
   wireGitHubLinks();
   injectStarStylesOnce();
   ensurePlannerPanel();
+  wireTabs();
+
   setStatus("Laden van data…");
 
-  let doc;
-  try{
-    doc = await fetchYaml(DATASETS[currentDataset]);
-    __DOC = doc;
-  }catch(e){
-    console.error(e);
-    setStatus("Kon data niet laden. Controleer of docs/data/ww1-belgium.yaml bestaat en GitHub Pages correct staat.");
-    return;
-  }
-
-  // Populate selects
-  const regions = doc.regions || [];
-  const pois = doc.pois || [];
-
-  buildSelect(els.region, regions.map(r=>({id:r.id, name:r.name})).map(o=>o.id), "Alle regio’s");
-  // show region names in dropdown
-  for(const opt of Array.from(els.region.options)){
-    const r = regions.find(x=>x.id===opt.value);
-    if(r) opt.textContent = r.name;
-  }
-
-  buildSelect(els.type, uniq(pois.map(p=>p.type)).sort(), "Alle types");
-  buildSelect(els.theme, uniq(pois.flatMap(p=>p.themes || [])).sort(), "Alle thema’s");
-
-  window.__STATE = { search:"", region:"", type:"", theme:"", photosOnly:false };
-
-  function rerender(){ render(doc, window.__STATE); }
-
-  // Wire controls
-  els.search.addEventListener("input", (e)=>{ window.__STATE.search = e.target.value; rerender(); });
-  els.region.addEventListener("change", (e)=>{ window.__STATE.region = e.target.value; rerender(); });
-  els.type.addEventListener("change", (e)=>{ window.__STATE.type = e.target.value; rerender(); });
-  els.theme.addEventListener("change", (e)=>{ window.__STATE.theme = e.target.value; rerender(); });
-  els.photosOnly.addEventListener("change", (e)=>{ window.__STATE.photosOnly = e.target.checked; rerender(); });
+  // Wire filter controls once (they work for both datasets)
+  els.search.addEventListener("input", (e)=>{ __STATE.search = e.target.value; render(__DOC, __STATE); });
+  els.region.addEventListener("change", (e)=>{ __STATE.region = e.target.value; render(__DOC, __STATE); });
+  els.type.addEventListener("change", (e)=>{ __STATE.type = e.target.value; render(__DOC, __STATE); });
+  els.theme.addEventListener("change", (e)=>{ __STATE.theme = e.target.value; render(__DOC, __STATE); });
+  els.photosOnly.addEventListener("change", (e)=>{ __STATE.photosOnly = e.target.checked; render(__DOC, __STATE); });
 
   // Planner buttons
   const panel = document.getElementById("plannerPanel");
   panel.querySelector("#btnClearFavs").addEventListener("click", ()=>{
     favs = new Set();
     saveFavs(currentDataset, favs);
-    // update all stars
     document.querySelectorAll(".starbtn").forEach(b=> b.innerHTML = "☆");
+    const out = panel.querySelector("#plannerOutput");
+    out.innerHTML = "";
+    out.dataset.hasPlan = "";
     updatePlannerUI();
   });
 
   panel.querySelector("#btnPlan").addEventListener("click", ()=>{
     const out = panel.querySelector("#plannerOutput");
-    const plan = buildWeekendPlan(doc);
+    const plan = buildWeekendPlan(__DOC);
     out.innerHTML = plan.html;
     out.dataset.hasPlan = "1";
   });
 
-  rerender();
+  // Initial load
+  await loadDataset(currentDataset);
 }
 
 main();
