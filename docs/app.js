@@ -221,10 +221,10 @@ function nearestNeighborOrder(points){
   }
   return ordered;
 }
-function googleMapsDirectionsLink(coords){
+function googleMapsDirectionsLink(coords, originOverride=null){
   if(coords.length < 2) return null;
   const fmt = (c)=> `${c.lat},${c.lon}`;
-  const origin = fmt(coords[0]);
+  const origin = originOverride ? fmt(originOverride) : fmt(coords[0]);
   const destination = fmt(coords[coords.length-1]);
   const waypoints = coords.slice(1,-1).map(fmt).join("|");
   const u = new URL("https://www.google.com/maps/dir/");
@@ -319,7 +319,26 @@ function buildWeekendPlan(){
   if(withCoords.length < 2){
     return `<div class="small">Ik heb coördinaten nodig om een route te berekenen. Voeg in YAML bij je favorieten <code>location.coordinates</code> toe (lat/lon), of voeg favorieten toe die al coördinaten hebben.</div>`;
   }
-  const ordered = nearestNeighborOrder(withCoords.map(x=>({poi:x.poi, coord:x.coord})));
+  const origin = getOriginCoord(doc);
+// Order by nearest-neighbor. If origin is known (e.g. hotel), start from origin for a more realistic route.
+let ordered;
+if(origin){
+  // pick the first stop closest to origin, then do nearest-neighbor among remaining
+  const pts = withCoords.map(x=>({ id:x.poi.id, coord:x.coord, poi:x.poi }));
+  if(!pts.length){
+    return { html: `<div class="small">Geen favorieten met coördinaten gevonden.</div>` };
+  }
+  // choose start as closest to origin
+  let bestIdx = 0, bestD = Infinity;
+  for(let i=0;i<pts.length;i++){
+    const d = haversineKm(origin, pts[i].coord);
+    if(d < bestD){ bestD = d; bestIdx = i; }
+  }
+  const start = pts.splice(bestIdx,1)[0];
+  ordered = [start, ...nearestNeighborOrder(pts)];
+}else{
+  ordered = nearestNeighborOrder(withCoords.map(x=>({ id:x.poi.id, coord:x.coord, poi:x.poi })));
+}
   const fri = ordered.slice(0,1);
   const sat = ordered.slice(1, Math.min(6, ordered.length));
   const sun = ordered.slice(Math.min(6, ordered.length));
